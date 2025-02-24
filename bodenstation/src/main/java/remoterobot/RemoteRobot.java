@@ -1,4 +1,4 @@
-package bodenstation;
+package remoterobot;
 
 import java.io.*;
 import java.net.Socket;
@@ -54,7 +54,7 @@ public class RemoteRobot {
             Thread exoListener = new Thread(() -> {
                 try {
                     String line;
-                    while (!Thread.currentThread().isInterrupted() && !exoSocket.isClosed()) {
+                    while (!Thread.currentThread().isInterrupted() && exoSocket.isConnected()) {
                         try {
                             line = exoIn.readLine();
                             if (line == null) {
