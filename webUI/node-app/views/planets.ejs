@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Planets</title>
+  </head>
+  <body>
+    <h1>Planets</h1>
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Name</th>
+          <th>Width</th>
+          <th>Height</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% planets.forEach(planet => { %>
+        <tr>
+          <td><%= planet.planet_id %></td>
+          <td><%= planet.name %></td>
+          <td><%= planet.width %></td>
+          <td><%= planet.height %></td>
+        </tr>
+        <% }); %>
+      </tbody>
+    </table>
+    <nav>
+      <a href="/">Back Home</a>
+    </nav>
+  </body>
+</html>

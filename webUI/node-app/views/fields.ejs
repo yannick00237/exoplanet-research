@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Fields</title>
+    <link rel="stylesheet" href="/fields.css" />
+  </head>
+  <body>
+    <h1>Fields</h1>
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Planet ID</th>
+          <th>Position X</th>
+          <th>Position Y</th>
+          <th>Ground</th>
+          <th>Temperature</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% fields.forEach(field => { %> <% if (field && field.field_id !==
+        undefined && field.planet_id !== undefined && field.positionX !==
+        undefined && field.positionY !== undefined && field.ground !== undefined
+        && field.temperature !== undefined) { %>
+        <tr>
+          <td><%= field.field_id %></td>
+          <td><%= field.planet_id %></td>
+          <td><%= field.positionX %></td>
+          <td><%= field.positionY %></td>
+          <td><%= field.ground %></td>
+          <td><%= field.temperature %></td>
+        </tr>
+        <% } %> <% }); %>
+      </tbody>
+    </table>
+
+    <h2>Field Map</h2>
+    <div class="grid-container">
+      <% fields.forEach(tile => { %>
+      <div
+        class="grid-item <%= tile.ground %>"
+        style="
+          grid-column: <%= tile.positionX + 1 %>;
+          grid-row: <%= tile.positionY + 1 %>;
+        "
+      >
+        <% if (tile.temperature !== undefined) { %> <%= tile.temperature %>°C <%
+        }%>
+      </div>
+      <% }); %>
+    </div>
+
+    <h2>Legend</h2>
+    <div class="legend-container">
+      <div class="legend-item SAND">SAND</div>
+      <div class="legend-item WASSER">WASSER</div>
+      <div class="legend-item GEROELL">GEROELL</div>
+      <div class="legend-item FELS">FELS</div>
+      <div class="legend-item NICHTS">NICHTS</div>
+      <div class="legend-item PFLANZEN">PFLANZEN</div>
+      <div class="legend-item MORAST">MORAST</div>
+      <div class="legend-item LAVA">LAVA</div>
+    </div>
+    <nav>
+      <a href="/">Back Home</a>
+    </nav>
+  </body>
+</html>

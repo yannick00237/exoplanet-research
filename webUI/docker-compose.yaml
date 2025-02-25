@@ -1,0 +1,26 @@
+version: "3.8"
+services:
+  db:
+    image: mariadb:latest
+    environment:
+      MYSQL_ROOT_PASSWORD: mysecretpassword # Change this!
+      MYSQL_DATABASE: exoplanet # Optional: Specify a default database
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./DDL.sql:/docker-entrypoint-initdb.d/DDL.sql # Adjust for MariaDB syntax if needed.
+  node-app:
+    build:
+      context: ./node-app
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./node-app:/app
+      - /app/node_modules # prevent host modules from overriding container modules.
+    environment:
+      MYSQL_ROOT_PASSWORD: mysecretpassword # Important: Use the correct env var
+      MYSQL_HOST: db #use the service name as the host name.
+      MYSQL_DATABASE: exoplanet #Optional, but good practice.
+    depends_on:
+      - db

@@ -1,0 +1,60 @@
+.grid-container {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  grid-template-rows: repeat(10, 1fr);
+  grid-column-gap: 0px;
+  grid-row-gap: 0px;
+
+  /* fit width and height is fixed of screen */
+  width: 80%;
+  height: 50vw;
+}
+
+.grid-item {
+  border: 1px solid gray;
+  text-align: center;
+}
+
+.SAND {
+  background-color: sandybrown;
+}
+
+.WASSER {
+  background-color: lightblue;
+}
+
+.GEROELL {
+  background-color: gray;
+}
+
+.FELS {
+  background-color: darkgray;
+}
+
+.NICHTS {
+  background-color: white;
+}
+
+.PFLANZEN {
+  background-color: lightgreen;
+}
+
+.MORAST {
+  background-color: darkolivegreen;
+}
+
+.LAVA {
+  background-color: orangered;
+}
+
+.legend-container {
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: 20px;
+}
+
+.legend-item {
+  padding: 5px 10px;
+  margin: 5px;
+  border: 1px solid #ccc;
+}

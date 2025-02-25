@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Robots</title>
+    <link rel="stylesheet" href="/fields.css" />
+  </head>
+  <body>
+    <h1>Robots</h1>
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Name</th>
+          <th>Direction</th>
+          <th>Position X</th>
+          <th>Position Y</th>
+          <th>Ground Station ID</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% robots.forEach(robot => { %>
+        <tr>
+          <td><%= robot.robot_id %></td>
+          <td><%= robot.name %></td>
+          <td><%= robot.direction %></td>
+          <td><%= robot.positionx %></td>
+          <td><%= robot.positiony %></td>
+          <td><%= robot.groundstation_id %></td>
+        </tr>
+        <% }); %>
+      </tbody>
+    </table>
+    <nav>
+      <a href="/">Back Home</a>
+    </nav>
+  </body>
+</html>

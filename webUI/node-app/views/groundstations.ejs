@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Ground Stations</title>
+  </head>
+  <body>
+    <h1>Ground Stations</h1>
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Name</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% groundstations.forEach(groundstation => { %>
+        <tr>
+          <td><%= groundstation.groundstation_id %></td>
+          <td><%= groundstation.name %></td>
+        </tr>
+        <% }); %>
+      </tbody>
+    </table>
+    <nav>
+      <a href="/">Back Home</a>
+    </nav>
+  </body>
+</html>

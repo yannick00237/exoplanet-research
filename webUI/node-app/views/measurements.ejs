@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Measurements</title>
+    <link rel="stylesheet" href="/fields.css" />
+  </head>
+  <body>
+    <h1>Measurements</h1>
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Robot ID</th>
+          <th>Field ID</th>
+          <th>Measure Time</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% measurements.forEach(measurement => { %>
+        <tr>
+          <td><%= measurement.measurement_id %></td>
+          <td><%= measurement.robot_id %></td>
+          <td><%= measurement.field_id %></td>
+          <td><%= measurement.measure_time %></td>
+        </tr>
+        <% }); %>
+      </tbody>
+    </table>
+    <nav>
+      <a href="/">Back Home</a>
+    </nav>
+  </body>
+</html>
