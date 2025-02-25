@@ -170,6 +170,8 @@ public class Bodenstation {
         robotPositions.remove(name);
     }
 
+    public String getPlanetName() { return planetName; }
+
     // Planet management
     public void setPlanetName(String name) {
         this.planetName = name;
@@ -669,7 +671,7 @@ public class Bodenstation {
                 int h = asInt(sizeMap.get("HEIGHT"), -1);
                 stationRef.setPlanetSize(w, h);
                 hasEnteredOrbit = true;
-                System.out.println("[" + robotName + "] ORBIT -> Planet w=" + w + ",h=" + h);
+                System.out.println("[" + robotName + "] ORBIT -> Planet: " + getPlanetName() + " w=" + w + ",h=" + h);
                 // if isAutonomous => start BFS if not started
                 if (isAutonomous && autoPilotThreadHasStopped()) {
                     startAutoPilot();
@@ -922,6 +924,9 @@ public class Bodenstation {
                         System.out.println("Planet => width=" + stationRef.getPlanetWidth()
                                 + ", height=" + stationRef.getPlanetHeight());
                         break;
+                    case "menu":
+                        showMenu();
+                        break;
                     default:
                         System.out.println("Unknown command => " + line);
                 }
@@ -961,20 +966,24 @@ public class Bodenstation {
             robotSubMenu(rs);
         }
 
+        private void showSubMenu(RobotSession robot) {
+            System.out.println("\n-- SubMenu for " + robot.getRobotName() + " --");
+            System.out.println("[1] toggle autonomy");
+            System.out.println("[2] manual move");
+            System.out.println("[3] manual scan");
+            System.out.println("[4] mvscan");
+            System.out.println("[5] rotate left/right");
+            System.out.println("[c] charge(5s)");
+            System.out.println("[gp] getpos");
+            System.out.println("[x] exit command");
+            System.out.println("[b] back");
+            System.out.print("> ");
+        }
+
         private void robotSubMenu(RobotSession robot) {
             boolean running = true;
             while (running && !Thread.currentThread().isInterrupted()) {
-                System.out.println("\n-- SubMenu for " + robot.getRobotName() + " --");
-                System.out.println("[1] toggle autonomy");
-                System.out.println("[2] manual move");
-                System.out.println("[3] manual scan");
-                System.out.println("[4] mvscan");
-                System.out.println("[5] rotate left/right");
-                System.out.println("[c] charge(5s)");
-                System.out.println("[gp] getpos");
-                System.out.println("[x] exit command");
-                System.out.println("[b] back");
-                System.out.print("> ");
+                showSubMenu(robot);
 
                 if (!consoleScanner.hasNextLine()) break;
                 String cmd = consoleScanner.nextLine().trim().toLowerCase();
@@ -1015,6 +1024,9 @@ public class Bodenstation {
                         break;
                     case "b":
                         running = false;
+                        break;
+                    case "submenu":
+                        showSubMenu(robot);
                         break;
                     default:
                         System.out.println("Unknown => " + cmd);
