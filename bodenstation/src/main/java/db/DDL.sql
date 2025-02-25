@@ -24,9 +24,11 @@ CREATE TABLE Field (
 CREATE TABLE Robot (
     robot_id SERIAL PRIMARY KEY,
     name VARCHAR(100) NOT NULL UNIQUE,
-    direction ENUM('NORTH','EAST','SOUTH','WEST') NOT NULL,
-    positionX INT NOT NULL,
-    positionY INT NOT NULL,
+    direction ENUM('NORTH','EAST','SOUTH','WEST'),
+    positionX INT,
+    positionY INT,
+    temperature  DECIMAL(9,6),
+    energy  INT DEFAULT 100,
     groundstation_id INT NOT NULL,
     FOREIGN KEY (groundstation_id) REFERENCES GroundStation (groundstation_id)
 );
