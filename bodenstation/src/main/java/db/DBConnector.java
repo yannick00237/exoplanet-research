@@ -1,39 +1,43 @@
 package db;
 
 import exo.Direction;
+import exo.Ground;
 
 import java.sql.*;
 
 /**
- * DBConnector: Provides helper functions for saving robots,
- * measurements, retrieving planet info, etc.
- * <p>
- * NOTE: This is just a skeleton. Connection details & real queries
- * need to be adapted once the DB is configured.
+ * DBConnector: A helper class for connecting to and managing a MariaDB database.
  */
 public class DBConnector {
 
-    private String url;
-    private String user;
-    private String password;
+    private static final String SERVER_URL = "jdbc:mariadb://localhost:3306";
+    private static final String DB_NAME = "exo";
+    private static final String USER = "root";
+    private static final String PASSWORD = "password";
 
-    public DBConnector(String url, String user, String password) {
-        this.url = url;
+    private final String serverUrl;
+    private final String dbName;
+    private final String user;
+    private final String password;
+
+    public DBConnector() {
+        this(SERVER_URL, DB_NAME, USER, PASSWORD);
+    }
+
+    public DBConnector(String serverUrl, String dbName, String user, String password) {
+        this.serverUrl = serverUrl;
+        this.dbName = dbName;
         this.user = user;
         this.password = password;
-        // e.g. "jdbc:postgresql://localhost:5432/exoplanet"
     }
 
-    private Connection getConnection() throws SQLException {
-        return DriverManager.getConnection(url, user, password);
+    private Connection getDBConnection() throws SQLException {
+        return DriverManager.getConnection(serverUrl + "/" + dbName, user, password);
     }
 
-    /**
-     * Finds a planet by its width and height. Returns the name if found, else null.
-     */
     public String findPlanetBySize(Integer width, Integer height) {
         String sql = "SELECT name FROM Planet WHERE width=? AND height=?";
-        try (Connection conn = getConnection();
+        try (Connection conn = getDBConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, width);
             ps.setInt(2, height);
@@ -47,43 +51,89 @@ public class DBConnector {
         return null;
     }
 
-    /**
-     * Saves or updates the robot data (position, direction, energy, temp).
-     * If not existing, you might do an INSERT, else UPDATE. This is only a skeleton.
-     */
-    public void saveRobot(String robotName, Direction dir, Integer posX, Integer posY, Float temp, Integer energy) {
-        // Example approach: check if robot exists => update or insert
-        String sqlInsertOrUpdate = "INSERT INTO Robot(name,direction,positionX,positionY,temperature,energy,groundstation_id) "
-                + "VALUES(?,?,?,?,?,?,1) "
-                + "ON CONFLICT (name) DO UPDATE SET "
-                + "direction=EXCLUDED.direction, positionX=EXCLUDED.positionX, positionY=EXCLUDED.positionY, "
-                + "temperature=EXCLUDED.temperature, energy=EXCLUDED.energy";
-        try (Connection conn = getConnection();
-             PreparedStatement ps = conn.prepareStatement(sqlInsertOrUpdate)) {
+    public void saveRobot(String robotName, Direction dir, Integer posX, Integer posY,
+                          Float temperature, Integer energy, String groundStationName) {
+        String getGroundStationId = "SELECT groundstation_id FROM GroundStation WHERE name=?";
+        String upsert =
+                "INSERT INTO Robot(name,direction,positionX,positionY,temperature,energy,groundstation_id) " +
+                        "VALUES (?,?,?,?,?,?,?) " +
+                        "ON DUPLICATE KEY UPDATE " +
+                        "direction=VALUES(direction), " +
+                        "positionX=VALUES(positionX), " +
+                        "positionY=VALUES(positionY), " +
+                        "temperature=VALUES(temperature), " +
+                        "energy=VALUES(energy), " +
+                        "groundstation_id=VALUES(groundstation_id)";
+
+        try (Connection conn = getDBConnection();
+             PreparedStatement gsStmt = conn.prepareStatement(getGroundStationId);
+             PreparedStatement ps = conn.prepareStatement(upsert)) {
+
+            gsStmt.setString(1, groundStationName);
+            ResultSet rs = gsStmt.executeQuery();
+            if (!rs.next()) {
+                System.err.println("Ground station not found: " + groundStationName);
+                return;
+            }
+            int groundstationId = rs.getInt("groundstation_id");
+
             ps.setString(1, robotName);
-            ps.setString(2, dir.name());
+            ps.setString(2, dir == null ? "NORTH" : dir.name());
             ps.setInt(3, posX);
             ps.setInt(4, posY);
-            ps.setFloat(5, temp == null ? 20f : temp);
-            ps.setInt(6, energy == null ? 100 : energy);
+            ps.setFloat(5, temperature);
+            ps.setInt(6, energy);
+            ps.setInt(7, groundstationId);
             ps.executeUpdate();
         } catch (SQLException e) {
             e.printStackTrace();
         }
     }
 
-    /**
-     * Saves measurement for a field. If the field doesn't exist, create it; else update. Then create a Measurement record.
-     */
-    public void saveFieldMeasurement(String planetName, Integer width, Integer height,
-                                     Integer fieldX, Integer fieldY, String groundType, Float temperature,
-                                     String robotName) {
-        // 1) find planet_id by name or size
-        // 2) insert or update field
-        // 3) find or create robot
-        // 4) insert measurement
-        // SKELETON => user must fill with real logic
-    }
+    public void saveFieldMeasurement(String robotName, int planetWidth, int planetHeight,
+                                     int posX, int posY, Ground groundType, float temperature) {
+        String getPlanetId = "SELECT planet_id FROM Planet WHERE width=? AND height=?";
+        String getRobotId = "SELECT robot_id FROM Robot WHERE name=?";
+        String fieldUpsert =
+                "INSERT INTO Field(planet_id, positionX, positionY, ground, temperature) " +
+                        "VALUES(?,?,?,?,?) " +
+                        "ON DUPLICATE KEY UPDATE ground=VALUES(ground), temperature=VALUES(temperature)";
+        String measurementInsert =
+                "INSERT INTO Measurement(robot_id, field_id) " +
+                        "VALUES(?, (SELECT field_id FROM Field WHERE planet_id=? AND positionX=? AND positionY=?))";
 
-    // Add additional helper methods as needed...
+        try (Connection conn = getDBConnection();
+             PreparedStatement planetStmt = conn.prepareStatement(getPlanetId);
+             PreparedStatement robotStmt = conn.prepareStatement(getRobotId);
+             PreparedStatement fieldStmt = conn.prepareStatement(fieldUpsert);
+             PreparedStatement measurementStmt = conn.prepareStatement(measurementInsert)) {
+
+            planetStmt.setInt(1, planetWidth);
+            planetStmt.setInt(2, planetHeight);
+            ResultSet planetRs = planetStmt.executeQuery();
+            if (!planetRs.next()) return;
+            int planetId = planetRs.getInt("planet_id");
+
+            robotStmt.setString(1, robotName);
+            ResultSet robotRs = robotStmt.executeQuery();
+            if (!robotRs.next()) return;
+            int robotId = robotRs.getInt("robot_id");
+
+            fieldStmt.setInt(1, planetId);
+            fieldStmt.setInt(2, posX);
+            fieldStmt.setInt(3, posY);
+            fieldStmt.setString(4, groundType.name());
+            fieldStmt.setFloat(5, temperature);
+            fieldStmt.executeUpdate();
+
+            measurementStmt.setInt(1, robotId);
+            measurementStmt.setInt(2, planetId);
+            measurementStmt.setInt(3, posX);
+            measurementStmt.setInt(4, posY);
+            measurementStmt.executeUpdate();
+
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
 }

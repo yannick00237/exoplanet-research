@@ -127,22 +127,15 @@ class ExoPlanetProtocol {
  * Main Bodenstation application.
  */
 public class Bodenstation {
+    private static final int BODENSTATION_PORT = 9999;
+    private final Map<String, RobotSession> sessions = new ConcurrentHashMap<>();
+    private final Map<Position, Measure> exploredFields = new ConcurrentHashMap<>();
+    private final Map<String, Position> robotPositions = new ConcurrentHashMap<>();
+    private final Set<Position> reservedPositions = ConcurrentHashMap.newKeySet();
     // Planet info (initially unknown => -1)
     private volatile String planetName = "UnknownPlanet";
     private volatile int planetWidth = -1;
     private volatile int planetHeight = -1;
-
-    // Robot sessions
-    private final Map<String, RobotSession> sessions = new ConcurrentHashMap<>();
-    // Explored fields
-    private final Map<Position, Measure> exploredFields = new ConcurrentHashMap<>();
-    // Current Robot Positions
-    private final Map<String, Position> robotPositions = new ConcurrentHashMap<>();
-    // Collision reservation system
-    private final Set<Position> reservedPositions = ConcurrentHashMap.newKeySet();
-
-    private static final int BODENSTATION_PORT = 9999;
-
     private ServerAcceptor serverAcceptor;
     private ConsoleUI consoleUI;
 
@@ -160,7 +153,7 @@ public class Bodenstation {
         consoleUI.start();
     }
 
-    // ------- Session management -------
+    // Session management
     private void registerSession(String name, RobotSession session) {
         sessions.put(name, session);
     }
@@ -168,11 +161,6 @@ public class Bodenstation {
     private void unregisterSession(String name) {
         sessions.remove(name);
         robotPositions.remove(name);
-    }
-
-    // ------- Planet management -------
-    public void setPlanetName(String name) {
-        this.planetName = name;
     }
 
     public void setPlanetSize(int width, int height) {
@@ -185,6 +173,10 @@ public class Bodenstation {
         return planetName;
     }
 
+    public void setPlanetName(String name) {
+        this.planetName = name;
+    }
+
     public int getPlanetWidth() {
         return planetWidth;
     }
@@ -193,7 +185,6 @@ public class Bodenstation {
         return planetHeight;
     }
 
-    // ------- Field data -------
     public Map<Position, Measure> getExploredFields() {
         return exploredFields;
     }
@@ -207,7 +198,6 @@ public class Bodenstation {
         exploredFields.put(new Position(x, y), measure);
     }
 
-    // ------- Robot positions -------
     public void setRobotPosition(String robotName, int x, int y, Direction d) {
         robotPositions.put(robotName, new Position(x, y, d));
     }
@@ -216,10 +206,9 @@ public class Bodenstation {
         return robotPositions.get(robot);
     }
 
-    // ------- Reservation-based collision avoidance -------
+    // Reservation-based collision avoidance
     public synchronized boolean reserveField(Position fieldPos) {
         if (reservedPositions.contains(fieldPos)) {
-            reservedPositions.forEach(position -> System.out.println("[Bodenstation] Reserved field: " + position + " requested: " + fieldPos));
             return false;
         }
         // also check if any robot is physically there
@@ -236,11 +225,10 @@ public class Bodenstation {
         reservedPositions.remove(fieldPos);
     }
 
-    private Map<String, RobotSession> getSessions() {
+    public Map<String, RobotSession> getSessions() {
         return sessions;
     }
 
-    // ------- Shutdown -------
     public void shutdown() {
         System.out.println("[Bodenstation] Shutting down...");
         if (serverAcceptor != null) {
@@ -267,9 +255,9 @@ public class Bodenstation {
     // ------------------------------------------------------------------------------
     class ServerAcceptor extends Thread {
         private static final int ACCEPT_TIMEOUT_MS = 2000;
-        private ServerSocket serverSocket;
         private final int port;
         private final Bodenstation stationRef;
+        private ServerSocket serverSocket;
 
         public ServerAcceptor(int port, Bodenstation stationRef) {
             this.port = port;
@@ -292,7 +280,7 @@ public class Bodenstation {
                         rs.start();
                         System.out.println("New Robot => " + robotName);
                     } catch (SocketTimeoutException e) {
-                        // no connection => loop
+                        // ignore, loop
                     }
                 }
             } catch (IOException e) {
@@ -319,21 +307,16 @@ public class Bodenstation {
         private final Socket socket;
         private final String robotName;
         private final Bodenstation stationRef;
-
+        // The list of fields to explore in autopilot (row-major approach)
+        private final Deque<Position> fieldsToExplore = new ArrayDeque<>();
         private PrintWriter out;
         private BufferedReader in;
-
         private boolean isCrashed = false;
         private boolean isAutonomous = false;
         private boolean hasEnteredOrbit = false;
         private boolean hasLanded = false;
-
         private float robotTemp = 20f;
         private int robotEnergy = 100;
-
-        // The list of fields to explore in autopilot (row-major approach)
-        private final Deque<Position> fieldsToExplore = new ArrayDeque<>();
-
         private Thread autoPilotThread;
 
         // If we get a "landed" measure but no position yet, store it here
@@ -359,13 +342,11 @@ public class Bodenstation {
                 out = new PrintWriter(socket.getOutputStream(), true);
                 in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
 
-                // Immediately send orbit
                 sendJson(ExoPlanetProtocol.buildOrbitCmd(robotName));
 
                 while (!Thread.currentThread().isInterrupted() && !isCrashed) {
-                    String line;
                     try {
-                        line = in.readLine();
+                        String line = in.readLine();
                         if (line == null) {
                             System.out.println("[" + robotName + "] Connection closed by remote.");
                             break;
@@ -391,20 +372,6 @@ public class Bodenstation {
             if (out != null) out.println(jsonCmd);
         }
 
-        public synchronized void setAutonomous(boolean auto) {
-            if (isCrashed) {
-                System.out.println("[" + robotName + "] can't go autonomous => crashed");
-                return;
-            }
-            isAutonomous = auto;
-            System.out.println("[" + robotName + "] Autonomy => " + auto);
-            if (auto && hasEnteredOrbit) {
-                startAutoPilot();
-            } else if (!autoPilotThreadHasStopped()) {
-                stopAutoPilot();
-            }
-        }
-
         private boolean autoPilotThreadHasStopped() {
             return (autoPilotThread == null || !autoPilotThread.isAlive());
         }
@@ -428,36 +395,48 @@ public class Bodenstation {
             return isAutonomous;
         }
 
+        public synchronized void setAutonomous(boolean auto) {
+            if (isCrashed) {
+                System.out.println("[" + robotName + "] can't go autonomous => crashed");
+                return;
+            }
+            isAutonomous = auto;
+            System.out.println("[" + robotName + "] Autonomy => " + auto);
+            if (auto && hasEnteredOrbit) {
+                startAutoPilot();
+            } else if (!autoPilotThreadHasStopped()) {
+                stopAutoPilot();
+            }
+        }
+
         public String getRobotName() {
             return robotName;
         }
 
         // ----------------------------------------------------------------
-        // Autopilot logic
+        // AUTOPILOT LOGIC
         // ----------------------------------------------------------------
         private void runAutoPilot() {
             System.out.println("[" + robotName + "] autopilot started...");
             try {
                 if (!hasEnteredOrbit) {
-                    System.out.println("[" + robotName + "] Awaiting orbit entry... Autopilot will resume once the robot has entered the orbit of a planet.");
+                    System.out.println("[" + robotName + "] Autopilot paused: awaiting orbit entry. Resume once robot enters orbit.");
                     return;
                 }
-
                 if (!hasLanded) {
-                    // Attempt to land on a suitable field
-                    System.out.println("[" + robotName + "] Awaiting landing... Autopilot will resume once the robot has landed on " + stationRef.getPlanetName() + ".");
+                    System.out.println("[" + robotName + "] Autopilot paused: awaiting landing on " + stationRef.getPlanetName() + ".");
                     attemptLanding();
                     return;
                 }
 
                 fillFieldsToExplore();
 
-                // Flag used to prevent repetitive calls
-                boolean actionRequested = false;
                 // main exploration
                 while (!Thread.currentThread().isInterrupted() && isAutonomous && !isCrashed) {
-                    removeMeasuredFields();
+                    // Step (1) => ensure neighbor fields are scanned
+                    scanSurroundingFieldsIfNeeded();
 
+                    removeMeasuredFields();
                     if (stationRef.allFieldsExplored()) {
                         System.out.println("[" + robotName + "] All fields measured => exit");
                         sendJson(ExoPlanetProtocol.buildExitCmd());
@@ -466,16 +445,18 @@ public class Bodenstation {
 
                     // check energy
                     if (robotEnergy < 20) {
-                        if (!actionRequested) {
-                            System.out.println("[" + robotName + "] Low energy => charging");
-                            sendJson(ExoPlanetProtocol.buildChargeCmd(CHARGE_DURATION_S));
-                            actionRequested = true;
-                            Thread.sleep((CHARGE_DURATION_S + 1) * 1000L);
-                        } else Thread.sleep(ACTION_SLEEP_MS);
+                        System.out.println("[" + robotName + "] Low energy => charging");
+                        sendJson(ExoPlanetProtocol.buildChargeCmd(CHARGE_DURATION_S));
+                        Thread.sleep((CHARGE_DURATION_S + 1) * 1000L);
                         continue;
-                    } else actionRequested = false;
+                    }
 
-                    //TODO: Ensure that all the fields that directly surround (neighboring) us within the boundary of the planet are scanned
+                    // re-attempt movement if needed
+                    if (needReAttempt && lastMoveTarget != null) {
+                        moveStepByStep(lastMoveTarget.getX(), lastMoveTarget.getY());
+                        needReAttempt = false;
+                        continue;
+                    }
 
                     Position nextField = pickNextField();
                     if (nextField == null) {
@@ -483,22 +464,102 @@ public class Bodenstation {
                         sendJson(ExoPlanetProtocol.buildExitCmd());
                         break;
                     }
-
-                    // re-attempt
-                    if (needReAttempt && lastMoveTarget != null) {
-                        moveStepByStep(lastMoveTarget.getX(), lastMoveTarget.getY());
-                        needReAttempt = false;
-                        continue;
-                    }
-
+                    System.out.println("[" + robotName + "] Next field => " + nextField);
                     moveStepByStep(nextField.getX(), nextField.getY());
                     Thread.sleep(ACTION_SLEEP_MS);
                 }
 
             } catch (InterruptedException e) {
-                System.out.println("[" + robotName + "] autopilot interrupted");
+                System.out.println("[" + robotName + "] autopilot interrupted.");
             }
             System.out.println("[" + robotName + "] autopilot ended.");
+        }
+
+        /**
+         * Optional method for autopilot: attemptLanding.
+         * Called automatically if you want the autopilot to handle land from code.
+         * Otherwise used from the UI or not used at all.
+         */
+        private void attemptLanding() throws InterruptedException {
+            Position landSpot = findLandingSpot();
+            if (landSpot == null) {
+                System.out.println("[" + robotName + "] No valid landing spot => skip");
+                return;
+            }
+            if (!stationRef.reserveField(landSpot)) {
+                System.out.println("[" + robotName + "] Cannot reserve landing => skip");
+                return;
+            }
+            lastMoveTarget = landSpot;
+            sendJson(ExoPlanetProtocol.buildLandCmd(landSpot.getX(), landSpot.getY(), Direction.EAST));
+            System.out.println("[" + robotName + "] Attempting to land at => " + landSpot);
+            Thread.sleep(ACTION_SLEEP_MS);
+        }
+
+        /**
+         * Find a free spot for landing, skipping known NICHTS fields or occupied fields.
+         */
+        private Position findLandingSpot() {
+            int w = stationRef.getPlanetWidth();
+            int h = stationRef.getPlanetHeight();
+            if (w < 1 || h < 1) return null;
+            int startRow = Math.min(1, h - 1);
+            for (int y = startRow; y < h; y++) {
+                for (int x = 0; x < w; x++) {
+                    Position p = new Position(x, y);
+                    if (!isFieldOccupied(p) && !isFieldNichts(p)) {
+                        return p;
+                    }
+                }
+            }
+            return null;
+        }
+
+        private void scanSurroundingFieldsIfNeeded() throws InterruptedException {
+            Position cur = stationRef.getRobotPosition(robotName);
+            if (cur == null) return;
+
+            List<Position> neighbors = getNeighborFields(cur);
+            for (Position nb : neighbors) {
+                if (!stationRef.getExploredFields().containsKey(nb)) {
+                    // rotate so we're facing that neighbor
+                    Direction needed = directionFromTo(cur, nb);
+                    if (cur.getDir() != needed) {
+                        Rotation r = computeRequiredRotation(cur.getDir(), needed);
+                        sendJson(ExoPlanetProtocol.buildRotateCmd(r));
+                        Thread.sleep(ACTION_SLEEP_MS);
+                        // update local dir
+                        cur.setDir(rotateDirection(cur.getDir(), r));
+                    }
+                    sendJson(ExoPlanetProtocol.buildScanCmd());
+                    Thread.sleep(ACTION_SLEEP_MS);
+                }
+            }
+        }
+
+        private List<Position> getNeighborFields(Position pos) {
+            List<Position> result = new ArrayList<>();
+            int px = pos.getX();
+            int py = pos.getY();
+            for (int dy = -1; dy <= 1; dy++) {
+                for (int dx = -1; dx <= 1; dx++) {
+                    if (dx == 0 && dy == 0) continue; // skip center
+                    Position np = new Position(px + dx, py + dy);
+                    if (inBounds(np)) result.add(np);
+                }
+            }
+            return result;
+        }
+
+        private Direction directionFromTo(Position from, Position to) {
+            int dx = to.getX() - from.getX();
+            int dy = to.getY() - from.getY();
+            // We'll pick a single direction (N, S, E, or W) if dx/dy bigger
+            if (Math.abs(dx) > Math.abs(dy)) {
+                return (dx > 0) ? Direction.EAST : Direction.WEST;
+            } else {
+                return (dy > 0) ? Direction.SOUTH : Direction.NORTH;
+            }
         }
 
         // fill fieldsToExplore (row-major)
@@ -507,8 +568,8 @@ public class Bodenstation {
             int w = stationRef.getPlanetWidth();
             int h = stationRef.getPlanetHeight();
             if (w < 1 || h < 1) return;
-            // possibly skip first row => pick second row approach:
-            int startRow = Math.min(1, h - 1); // if h>1, startRow=1 else 0
+            // row-major from second row if possible
+            int startRow = Math.min(1, h - 1);
             for (int y = startRow; y < h; y++) {
                 for (int x = 0; x < w; x++) {
                     fieldsToExplore.addLast(new Position(x, y));
@@ -525,46 +586,6 @@ public class Bodenstation {
             return fieldsToExplore.pollFirst();
         }
 
-        private void attemptLanding() throws InterruptedException {
-            // find a free, non-NICHTS field. Possibly on row=1 for better scanning
-            Position landSpot = findLandingSpot();
-            if (landSpot == null) {
-                System.out.println("[" + robotName + "] no safe landing => skip");
-                return;
-            }
-            // reserve it
-            if (!stationRef.reserveField(landSpot)) {
-                System.out.println("[" + robotName + "] cannot reserve landing => skip");
-                return;
-            }
-            // land
-            lastMoveTarget = landSpot;
-            sendJson(ExoPlanetProtocol.buildLandCmd(landSpot.getX(), landSpot.getY(), Direction.EAST));
-            System.out.println("[" + robotName + "] Attempting to land at " + landSpot);
-            // keep it reserved until we see LANDED or CRASHED
-            Thread.sleep(ACTION_SLEEP_MS);
-        }
-
-        /**
-         * Looks for a free field that we haven't discovered as NICHTS
-         * Start from row=1 if possible for better scanning coverage
-         */
-        private Position findLandingSpot() {
-            int w = stationRef.getPlanetWidth();
-            int h = stationRef.getPlanetHeight();
-            if (w < 1 || h < 1) return null;
-            int startRow = Math.min(1, h - 1);
-            for (int y = 0; y < h; y++) {
-                for (int x = startRow; x < w; x++) {
-                    Position p = new Position(x, y);
-                    if (!isFieldOccupied(p) && !isFieldNichts(p)) {
-                        return p;
-                    }
-                }
-            }
-            return null;
-        }
-
         private boolean isFieldOccupied(Position p) {
             for (Position rp : stationRef.robotPositions.values()) {
                 if (rp.getX() == p.getX() && rp.getY() == p.getY()) {
@@ -575,31 +596,30 @@ public class Bodenstation {
         }
 
         private boolean isFieldNichts(Position p) {
-            Measure m = stationRef.exploredFields.get(p);
+            Measure m = stationRef.getExploredFields().get(p);
             return (m != null && m.getGround() == Ground.NICHTS);
         }
 
         private boolean inBounds(Position p) {
-            return p.getX() >= 0 && p.getX() < planetWidth && p.getY() >= 0 && p.getY() < planetHeight;
+            return p.getX() >= 0 && p.getX() < stationRef.getPlanetWidth() && p.getY() >= 0 && p.getY() < stationRef.getPlanetHeight();
         }
 
+        // ----------------------------------------------------------------
+        // Movement logic
+        // ----------------------------------------------------------------
         private void moveStepByStep(int tx, int ty) throws InterruptedException {
             Position cur = stationRef.getRobotPosition(robotName);
             if (cur == null) {
                 System.out.println("[" + robotName + "] No known pos => skip move");
                 return;
             }
-
             lastMoveTarget = new Position(tx, ty);
-            // Flag used to prevent repetitive calls
-            boolean actionRequested = false;
 
             while (!Thread.currentThread().isInterrupted() && isAutonomous && !isCrashed) {
                 int dx = tx - cur.getX();
                 int dy = ty - cur.getY();
-                if (dx == 0 && dy == 0) break; // done
+                if (dx == 0 && dy == 0) break;
 
-                // figure out direction
                 Direction neededDir = null;
                 if (Math.abs(dx) > 0) {
                     neededDir = (dx > 0) ? Direction.EAST : Direction.WEST;
@@ -608,74 +628,59 @@ public class Bodenstation {
                 }
 
                 if (neededDir != null && cur.getDir() != neededDir) {
-                    // rotate to neededDir
-                    if (!actionRequested) {
-                        Rotation rot = computeRequiredRotation(cur.getDir(), neededDir);
-                        sendJson(ExoPlanetProtocol.buildRotateCmd(rot));
-                        actionRequested = true;
-                    }
+                    Rotation r = computeRequiredRotation(cur.getDir(), neededDir);
+                    sendJson(ExoPlanetProtocol.buildRotateCmd(r));
+                    // update local direction after rotating
+                    cur.setDir(rotateDirection(cur.getDir(), r));
                     Thread.sleep(ACTION_SLEEP_MS);
                     continue;
-                } else {
-                    // forward is nextField
-                    Position forward = nextField(cur);
-                    actionRequested = false;
-                    if (!inBounds(forward)) {
-                        // try turning right
-                        if (!actionRequested) {
-                            System.out.println("[" + robotName + "] forward out-of-bounds => turn right");
-                            sendJson(ExoPlanetProtocol.buildRotateCmd(Rotation.RIGHT));
-                            actionRequested = true;
-                        }
-                        Thread.sleep(ACTION_SLEEP_MS);
-                        continue;
-                    } else actionRequested = false;
-                    // if we know it's NICHTS => skip
-                    if (isFieldNichts(forward)) {
-                        if (!actionRequested) {
-                            System.out.println("[" + robotName + "] forward is NICHTS => turn right");
-                            sendJson(ExoPlanetProtocol.buildRotateCmd(Rotation.RIGHT));
-                            actionRequested = true;
-                        }
-                        Thread.sleep(ACTION_SLEEP_MS);
-                        continue;
-                    } else actionRequested = false;
-                    // attempt reserve
-                    if (!stationRef.reserveField(forward)) {
-                        if (!actionRequested) {
-                            System.out.println("[" + robotName + "] forward reserved => check alt path");
-                            // turn right => see if new forward can be reserved
-                            sendJson(ExoPlanetProtocol.buildRotateCmd(Rotation.RIGHT));
-                            lastMoveTarget = computeRotation(stationRef.getRobotPosition(robotName), Rotation.RIGHT);
-                            actionRequested = true;
-                        } else actionRequested = false;
-                        Thread.sleep(ACTION_SLEEP_MS);
-                        continue;
-                    }
-                    else doMoveOrMvScan(forward);
                 }
 
+                Position forward = nextField(cur);
+                if (!inBounds(forward)) {
+                    System.out.println("[" + robotName + "] forward out-of-bounds => turn right");
+                    sendJson(ExoPlanetProtocol.buildRotateCmd(Rotation.RIGHT));
+                    cur.setDir(rotateDirection(cur.getDir(), Rotation.RIGHT));
+                    Thread.sleep(ACTION_SLEEP_MS);
+                    continue;
+                }
+
+                if (isFieldNichts(forward)) {
+                    System.out.println("[" + robotName + "] forward is NICHTS => turn right");
+                    sendJson(ExoPlanetProtocol.buildRotateCmd(Rotation.RIGHT));
+                    cur.setDir(rotateDirection(cur.getDir(), Rotation.RIGHT));
+                    Thread.sleep(ACTION_SLEEP_MS);
+                    continue;
+                }
+
+                if (!stationRef.reserveField(forward)) {
+                    System.out.println("[" + robotName + "] forward reserved => check alt path => turn right");
+                    sendJson(ExoPlanetProtocol.buildRotateCmd(Rotation.RIGHT));
+                    cur.setDir(rotateDirection(cur.getDir(), Rotation.RIGHT));
+                    Thread.sleep(ACTION_SLEEP_MS);
+                    continue;
+                }
+
+                doMoveOrMvScan(forward);
                 Thread.sleep(ACTION_SLEEP_MS * 2);
+
                 cur = stationRef.getRobotPosition(robotName);
                 if (cur == null) break;
             }
         }
 
-        /**
-         * Decides whether to move or mvscan. If the forward field is unknown => mvscan
-         * then we only release after we get 'moved' or 'mvscaned'
-         */
-        private void doMoveOrMvScan(Position forwardField) {
-            if (!stationRef.getExploredFields().containsKey(forwardField)) {
+        private void doMoveOrMvScan(Position forward) {
+            if (!stationRef.getExploredFields().containsKey(forward)) {
+                System.out.println("[" + robotName + "] Using MVSCAN for => " + forward);
                 sendJson(ExoPlanetProtocol.buildMvScanCmd());
             } else {
+                System.out.println("[" + robotName + "] Move => " + forward);
                 sendJson(ExoPlanetProtocol.buildMoveCmd());
             }
         }
 
         private Position nextField(Position pos) {
-            int x = pos.getX();
-            int y = pos.getY();
+            int x = pos.getX(), y = pos.getY();
             switch (pos.getDir()) {
                 case NORTH:
                     y--;
@@ -704,15 +709,15 @@ public class Bodenstation {
             return Rotation.RIGHT; // fallback
         }
 
-        private Position computeRotation(Position position, Rotation rotation) {
+        private Direction rotateDirection(Direction dir, Rotation rot) {
             List<Direction> circle = Arrays.asList(Direction.NORTH, Direction.EAST, Direction.SOUTH, Direction.WEST);
-
-            if (rotation == Rotation.RIGHT) {
-                position.setDir(circle.get((circle.indexOf(position.getDir()) + 1) % 4));
+            int idx = circle.indexOf(dir);
+            if (rot == Rotation.RIGHT) {
+                idx = (idx + 1) % 4;
             } else {
-                position.setDir(circle.get((circle.indexOf(position.getDir()) + 3) % 4));
+                idx = (idx + 3) % 4;
             }
-            return position;
+            return circle.get(idx);
         }
 
         // ----------------------------------------------------------------
@@ -751,7 +756,7 @@ public class Bodenstation {
                 case CRASHED:
                     System.out.println("[" + robotName + "] CRASHED => end session");
                     isCrashed = true;
-                    // if we crashed landing onto NICHTS => store it
+                    // if we crashed on NICHTS => record it
                     if (lastMoveTarget != null && !hasLanded) {
                         stationRef.updateFieldMeasurement(lastMoveTarget.getX(), lastMoveTarget.getY(),
                                 new Measure(Ground.NICHTS, -999.9f));
@@ -778,7 +783,7 @@ public class Bodenstation {
                 int h = asInt(sizeMap.get("HEIGHT"), -1);
                 stationRef.setPlanetSize(w, h);
                 hasEnteredOrbit = true;
-                System.out.println("[" + robotName + "] INIT => Successfully entered orbit of " + stationRef.getPlanetName() + ": width=" + w + ", height=" + h + ".");
+                System.out.println("[" + robotName + "] => Entered orbit of " + stationRef.getPlanetName() + ": w=" + w + " h=" + h);
                 if (isAutonomous && autoPilotThreadHasStopped()) {
                     startAutoPilot();
                 }
@@ -786,25 +791,23 @@ public class Bodenstation {
         }
 
         private void handleLanded(Map<String, Object> msg) {
-            // measure => pendingLanding
             Map<String, Object> measure = (Map<String, Object>) msg.get("MEASURE");
             if (measure != null) {
                 pendingLandingMeasure = parseMeasurement(measure);
-                System.out.println("[" + robotName + "] LANDED => Successfully landed on " + stationRef.getPlanetName() + ". Beginning exploration...");
+                System.out.println("[" + robotName + "] => LANDED on " + stationRef.getPlanetName() + " with measure => " + measure);
             }
-            // getpos
             sendJson(ExoPlanetProtocol.buildGetPosCmd());
         }
 
         private void handleScaned(Map<String, Object> msg) {
             Map<String, Object> measureMap = (Map<String, Object>) msg.get("MEASURE");
             if (measureMap != null) {
-                // The scan measures the field **in front of the robot’s direction**
-                Position robotPos = stationRef.getRobotPosition(robotName);
-                if (robotPos != null) {
-                    Position fwd = nextField(robotPos);
+                Position cur = stationRef.getRobotPosition(robotName);
+                if (cur != null) {
+                    // we measure forward
+                    Position fwd = nextField(cur);
                     handleMeasurement(measureMap, fwd.getX(), fwd.getY());
-                    System.out.println("[" + robotName + "] SCANED => Scanned field ahead at (" + fwd.getX() + "," + fwd.getY() + "). Measurement saved.");
+                    System.out.println("[" + robotName + "] => SCANED => field ahead (" + fwd + ").");
                 }
             }
         }
@@ -813,10 +816,8 @@ public class Bodenstation {
             Map<String, Object> posMap = (Map<String, Object>) msg.get("POSITION");
             if (posMap != null) {
                 updatePosition(posMap);
-                System.out.println("[" + robotName + "] MOVED => Successfully moved to new position: " + posMap);
+                System.out.println("[" + robotName + "] => MOVED => new position => " + posMap);
             }
-
-            // Release last reserved field
             if (lastMoveTarget != null) {
                 stationRef.releaseField(lastMoveTarget);
             }
@@ -829,7 +830,7 @@ public class Bodenstation {
                 Position cur = stationRef.getRobotPosition(robotName);
                 if (cur != null) {
                     cur.setDir(nd);
-                    System.out.println("[" + robotName + "] Successfully rotated. Now facing " + nd + ".");
+                    System.out.println("[" + robotName + "] => ROTATED => now facing => " + nd);
                 }
             }
         }
@@ -837,7 +838,7 @@ public class Bodenstation {
         private void handleCharged(Map<String, Object> msg) {
             Map<String, Object> st = (Map<String, Object>) msg.get("STATUS");
             if (st != null) handleStatusData(st);
-            System.out.println("[" + robotName + "] CHARGED => energy=" + robotEnergy + ", temp=" + robotTemp);
+            System.out.println("[" + robotName + "] => CHARGED => energy=" + robotEnergy + ", temp=" + robotTemp);
         }
 
         private void handleStatus(Map<String, Object> msg) {
@@ -849,19 +850,19 @@ public class Bodenstation {
             Map<String, Object> posMap = (Map<String, Object>) msg.get("POSITION");
             if (posMap != null) {
                 updatePosition(posMap);
-                System.out.println("[" + robotName + "] GETPOS => Position update received: " + posMap);
+                System.out.println("[" + robotName + "] => GETPOS => updated => " + posMap);
                 if (pendingLandingMeasure != null) {
                     Position cur = stationRef.getRobotPosition(robotName);
                     if (cur != null) {
                         handleMeasurementInternal(pendingLandingMeasure, cur.getX(), cur.getY());
-                        // release last reserved field
                         stationRef.releaseField(cur);
+                        hasLanded = true;
+                        System.out.println("[" + robotName + "] => Landed measure recorded => " + cur);
+                        if (isAutonomous && autoPilotThreadHasStopped()) {
+                            startAutoPilot();
+                        }
                     }
                     pendingLandingMeasure = null;
-                    hasLanded = true;
-                    if (isAutonomous && autoPilotThreadHasStopped()) {
-                        startAutoPilot();
-                    }
                 }
             }
         }
@@ -869,7 +870,6 @@ public class Bodenstation {
         private void handleStatusData(Map<String, Object> stMap) {
             robotTemp = asFloat(stMap.get("TEMP"), robotTemp);
             robotEnergy = asInt(stMap.get("ENERGY"), robotEnergy);
-
             String message = (String) stMap.get("MESSAGE");
             if (message == null || message.isEmpty()) return;
             String[] tokens = message.split("\\|");
@@ -908,7 +908,7 @@ public class Bodenstation {
                     System.out.println("[" + robotName + "] status => " + event);
                     break;
                 case "WARN_LOW_ENERGY":
-                    System.out.println("[" + robotName + "] => WARN_LOW_ENERGY => Low energy detected. Initiating charging sequence before continuing exploration.");
+                    System.out.println("[" + robotName + "] => WARN_LOW_ENERGY => charging if autopilot.");
                     if (isAutonomous) {
                         sendJson(ExoPlanetProtocol.buildChargeCmd(CHARGE_DURATION_S));
                     }
@@ -938,7 +938,6 @@ public class Bodenstation {
             }
         }
 
-        // parse measure data
         private Measure parseMeasurement(Map<String, Object> measureMap) {
             try {
                 String gstr = (String) measureMap.get("GROUND");
@@ -971,7 +970,6 @@ public class Bodenstation {
             stationRef.setRobotPosition(robotName, x, y, nd);
         }
 
-        // I/O
         public void closeSocket() {
             try {
                 if (socket != null && !socket.isClosed()) {
@@ -1004,7 +1002,7 @@ public class Bodenstation {
     }
 
     // ------------------------------------------------------------------------------
-    // SIMPLE CONSOLE UI
+    // CONSOLE UI
     // ------------------------------------------------------------------------------
     class ConsoleUI extends Thread {
         private final Scanner consoleScanner = new Scanner(System.in);
@@ -1033,9 +1031,10 @@ public class Bodenstation {
                         selectRobot();
                         break;
                     case "stats":
-                        System.out.println("Explored fields => " + stationRef.getExploredFields().size());
-                        System.out.println("Planet => width=" + stationRef.getPlanetWidth()
-                                + ", height=" + stationRef.getPlanetHeight());
+                        showStats();
+                        break;
+                    case "map":
+                        drawMap();
                         break;
                     default:
                         System.out.println("Unknown command => " + line);
@@ -1047,7 +1046,8 @@ public class Bodenstation {
             System.out.println("\n-- BODENSTATION MENU --");
             System.out.println("[ls]    => list robots");
             System.out.println("[sel]   => select a robot (manual commands)");
-            System.out.println("[stats] => show exploration stats");
+            System.out.println("[stats] => show exploration stats (including percentage explored)");
+            System.out.println("[map]   => draw a simple map of the planet");
             System.out.println("[exit]  => shut down");
             System.out.print("> ");
         }
@@ -1058,9 +1058,9 @@ public class Bodenstation {
                 System.out.println("No robots connected.");
                 return;
             }
-            for (Map.Entry<String, RobotSession> e : sess.entrySet()) {
-                RobotSession rs = e.getValue();
-                System.out.println(" * " + e.getKey() + " => autonomous=" + rs.isAutonomous());
+            for (String robotKey : sess.keySet()) {
+                RobotSession rs = sess.get(robotKey);
+                System.out.println(" * " + robotKey + " => autonomous=" + rs.isAutonomous());
             }
         }
 
@@ -1074,6 +1074,79 @@ public class Bodenstation {
                 return;
             }
             robotSubMenu(rs);
+        }
+
+        private void showStats() {
+            int totalFields = stationRef.getPlanetWidth() * stationRef.getPlanetHeight();
+            if (totalFields <= 0) {
+                System.out.println("[Stats] Planet size not set or invalid. Explored: " + stationRef.getExploredFields().size());
+                return;
+            }
+            int exploredCount = stationRef.getExploredFields().size();
+            float perc = (exploredCount / (float) totalFields) * 100f;
+            System.out.printf("[Stats] Planet: %s => Explored %d of %d fields => %.2f%%\n",
+                    stationRef.getPlanetName(), exploredCount, totalFields, perc);
+        }
+
+        private void drawMap() {
+            int w = stationRef.getPlanetWidth();
+            int h = stationRef.getPlanetHeight();
+            if (w < 1 || h < 1) {
+                System.out.println("[Map] Planet size not known, cannot draw map.");
+                return;
+            }
+            System.out.println("[Map] Drawing planet " + stationRef.getPlanetName() + ": w=" + w + ", h=" + h);
+            for (int y = 0; y < h; y++) {
+                StringBuilder row = new StringBuilder();
+                for (int x = 0; x < w; x++) {
+                    Position p = new Position(x, y);
+                    // check if a robot is here
+                    boolean isRobot = false;
+                    for (Map.Entry<String, Position> e : stationRef.robotPositions.entrySet()) {
+                        Position rp = e.getValue();
+                        if (rp.getX() == x && rp.getY() == y) {
+                            row.append("R"); // robot
+                            isRobot = true;
+                            break;
+                        }
+                    }
+                    if (isRobot) continue;
+
+                    // else check explored
+                    Measure m = stationRef.exploredFields.get(p);
+                    if (m != null) {
+                        switch (m.getGround()) {
+                            case NICHTS:
+                                row.append("X");
+                                break; // crash or empty
+                            case SAND:
+                                row.append(".");
+                                break;
+                            case GEROELL:
+                                row.append("g");
+                                break;
+                            case FELS:
+                                row.append("F");
+                                break;
+                            case WASSER:
+                                row.append("~");
+                                break;
+                            case PFLANZEN:
+                                row.append("P");
+                                break;
+                            case MORAST:
+                                row.append("M");
+                                break;
+                            case LAVA:
+                                row.append("L");
+                                break;
+                        }
+                    } else {
+                        row.append("?"); // unknown
+                    }
+                }
+                System.out.println(row.toString());
+            }
         }
 
         private void robotSubMenu(RobotSession robot) {
@@ -1117,6 +1190,12 @@ public class Bodenstation {
                     case "x":
                         robot.sendJson(ExoPlanetProtocol.buildExitCmd());
                         break;
+                    case "l":
+                        manualLand(robot);
+                        break;
+                    case "s":
+                        showRobotStatus(robot);
+                        break;
                     case "b":
                         running = false;
                         break;
@@ -1135,9 +1214,43 @@ public class Bodenstation {
             System.out.println("[5] rotate left/right");
             System.out.println("[c] charge(5s)");
             System.out.println("[gp] getpos");
+            System.out.println("[l] land (manual land command)");
+            System.out.println("[s] get status of robot");
             System.out.println("[x] exit command");
             System.out.println("[b] back");
             System.out.print("> ");
+        }
+
+        private void manualLand(RobotSession robot) {
+            System.out.println("Enter landing coords => x y direction:");
+            if (!consoleScanner.hasNextLine()) return;
+            String line = consoleScanner.nextLine().trim();
+            String[] parts = line.split("\\s+");
+            if (parts.length < 3) {
+                System.out.println("Usage: x y [NORTH|EAST|SOUTH|WEST]");
+                return;
+            }
+            try {
+                int x = Integer.parseInt(parts[0]);
+                int y = Integer.parseInt(parts[1]);
+                Direction dir = Direction.valueOf(parts[2].toUpperCase(Locale.ROOT));
+                robot.sendJson(ExoPlanetProtocol.buildLandCmd(x, y, dir));
+            } catch (Exception e) {
+                System.out.println("Invalid land input => " + e);
+            }
+        }
+
+        private void showRobotStatus(RobotSession robot) {
+            System.out.println("\n-- Robot Status for " + robot.getRobotName() + " --");
+            System.out.println("Autonomous: " + robot.isAutonomous);
+            Position p = getRobotPosition(robot.getRobotName());
+            if (p != null) {
+                System.out.println("Position: (" + p.getX() + "," + p.getY() + ") Dir=" + p.getDir());
+            } else {
+                System.out.println("Position: unknown");
+            }
+            System.out.println("Energy: " + robot.robotEnergy);
+            System.out.println("Temp: " + robot.robotTemp);
         }
     }
 }
